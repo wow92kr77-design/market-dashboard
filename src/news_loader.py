@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Dict, List
 from urllib.parse import quote_plus
 
+from bs4 import BeautifulSoup
 import feedparser
 import pandas as pd
 
@@ -131,3 +132,37 @@ def negative_news_ratio(news: pd.DataFrame) -> float:
         return 0.0
     negatives = news["title"].fillna("").apply(lambda title: any(word in title for word in NEGATIVE_WORDS)).sum()
     return float(negatives / len(news))
+
+
+def summarize_news(news: pd.DataFrame, limit: int = 8) -> pd.DataFrame:
+    """Make a compact Korean summary table from RSS news without paid APIs."""
+    rows = []
+    for _, item in news.head(limit).iterrows():
+        title = str(item.get("title", "")).strip()
+        raw_summary = str(item.get("summary", "")).strip()
+        plain_summary = BeautifulSoup(raw_summary, "html.parser").get_text(" ", strip=True)
+        if not plain_summary or plain_summary == title:
+            plain_summary = _rule_news_summary(title, str(item.get("tags", "시장")))
+        rows.append(
+            {
+                "중요도": "★" * int(item.get("importance", 1)),
+                "테마": item.get("tags", "시장"),
+                "뉴스": title,
+                "요약": plain_summary[:150],
+                "출처": item.get("publisher", ""),
+                "링크": item.get("link", ""),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _rule_news_summary(title: str, tags: str) -> str:
+    if any(word in title for word in ["수주", "공급계약", "수출"]):
+        return f"{tags} 관련 수주/수출 모멘텀이 부각되는 뉴스입니다."
+    if any(word in title for word in ["강세", "상승", "신고가"]):
+        return f"{tags} 투자심리가 개선되며 관련 종목 흐름이 강한 뉴스입니다."
+    if any(word in title for word in ["하락", "급락", "부진", "우려"]):
+        return f"{tags} 쪽 단기 부담 또는 리스크를 점검해야 하는 뉴스입니다."
+    if any(word in title for word in ["환율", "금리", "FOMC", "CPI"]):
+        return "거시 변수 변화가 국내 증시 수급과 성장주 변동성에 영향을 줄 수 있습니다."
+    return f"{tags} 관련 시장 관심이 확인되는 뉴스입니다."

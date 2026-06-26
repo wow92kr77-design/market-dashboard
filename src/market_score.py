@@ -1,29 +1,45 @@
 from __future__ import annotations
 
+import math
 from typing import Dict, List
 
 import pandas as pd
 
 
 def calculate_risk_score(indices: pd.DataFrame, foreign_flow: pd.DataFrame, negative_news_ratio: float) -> Dict[str, object]:
-    def pct(name: str) -> float:
+    def _number(value: object, fallback: float = 0.0) -> float:
+        try:
+            number = float(value)
+            return number if math.isfinite(number) else fallback
+        except Exception:
+            return fallback
+
+    def pct(name: str, limit: float = 15.0) -> float:
         row = indices[indices["name"] == name]
-        return float(row["change_pct"].iloc[0]) if not row.empty else 0.0
+        value = _number(row["change_pct"].iloc[0]) if not row.empty else 0.0
+        # Bad provider ticks can occasionally report impossible daily changes.
+        return value if abs(value) <= limit else 0.0
 
     def val(name: str) -> float:
         row = indices[indices["name"] == name]
-        return float(row["value"].iloc[0]) if not row.empty else 0.0
+        return _number(row["value"].iloc[0]) if not row.empty else 0.0
 
     score = 50.0
     score += pct("KOSPI") * 8
     score += pct("KOSDAQ") * 6
-    score -= max(pct("USD/KRW"), 0) * 5
+    score -= max(pct("USD/KRW", limit=5.0), 0) * 5
     score += pct("Nasdaq") * 4
     score += pct("S&P500") * 4
-    score -= max(val("VIX") - 15, 0) * 1.2
-    if not foreign_flow.empty and foreign_flow["순매수금액(억원)"].sum() > 0:
+
+    vix = val("VIX")
+    if not 0 < vix < 100:
+        vix = 15.0
+    score -= min(max(vix - 15, 0) * 1.2, 35)
+
+    flow_col = "순매수금액(억원)"
+    if not foreign_flow.empty and flow_col in foreign_flow and foreign_flow[flow_col].sum() > 0:
         score += 8
-    score -= negative_news_ratio * 20
+    score -= max(0.0, min(1.0, _number(negative_news_ratio))) * 20
     score = round(max(0, min(100, score)), 1)
     label = "위험" if score <= 30 else "보통" if score <= 60 else "양호" if score <= 80 else "매우 좋음"
     return {"score": score, "label": label}

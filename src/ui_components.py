@@ -134,12 +134,13 @@ def render_metric_cards(indices: pd.DataFrame) -> None:
         value = float(row["value"])
         change = float(row["change_pct"])
         source = row.get("source", "sample")
+        source_label = "실시간" if source == "live" else "샘플"
         formatted = f"{value:,.2f}" if abs(value) < 100000 else f"{value:,.0f}"
         with col:
             st.markdown(
                 f"""
                 <div class="metric-card">
-                    <div class="metric-name">{row['name']} <span class="source-chip">{source}</span></div>
+                    <div class="metric-name">{row['name']} <span class="source-chip">{source_label}</span></div>
                     <div class="metric-value">{formatted}</div>
                     <div class="metric-change" style="color:{pct_color(change)}">{change:+.2f}%</div>
                 </div>
@@ -157,18 +158,70 @@ def render_summary(lines: List[str]) -> None:
 
 
 def theme_heatmap(theme_scores: pd.DataFrame) -> go.Figure:
-    fig = px.treemap(
-        theme_scores,
-        path=["theme"],
-        values="score",
-        color="avg_return",
-        color_continuous_scale=[[0, RED], [0.5, "#596274"], [1, GREEN]],
-        hover_data=["avg_return", "volume_ratio", "news_mentions"],
+    df = theme_scores.rename(
+        columns={
+            "theme": "테마",
+            "score": "테마점수",
+            "avg_return": "평균수익률",
+            "volume_ratio": "거래량배율",
+            "news_mentions": "뉴스언급",
+        }
+    ).sort_values("테마점수", ascending=False).copy()
+    cols = 4
+    rows = (len(df) + cols - 1) // cols
+    padded = df.to_dict("records") + [{} for _ in range(rows * cols - len(df))]
+
+    z, text, custom = [], [], []
+    for row_idx in range(rows):
+        z_row, text_row, custom_row = [], [], []
+        for col_idx in range(cols):
+            item = padded[row_idx * cols + col_idx]
+            if item:
+                z_row.append(item["평균수익률"])
+                text_row.append(f"{item['테마']}<br>{item['테마점수']:.0f}점")
+                custom_row.append(
+                    [
+                        item["테마"],
+                        item["테마점수"],
+                        item["평균수익률"],
+                        item["거래량배율"],
+                        item["뉴스언급"],
+                    ]
+                )
+            else:
+                z_row.append(None)
+                text_row.append("")
+                custom_row.append(["", 0, 0, 0, 0])
+        z.append(z_row)
+        text.append(text_row)
+        custom.append(custom_row)
+
+    fig = go.Figure(
+        go.Heatmap(
+            z=z,
+            text=text,
+            texttemplate="%{text}",
+            customdata=custom,
+            colorscale=[[0, RED], [0.5, "#596274"], [1, GREEN]],
+            colorbar=dict(title="평균 수익률"),
+            hovertemplate=(
+                "<b>%{customdata[0]}</b><br>"
+                "테마 점수: %{customdata[1]:.1f}점<br>"
+                "평균 수익률: %{customdata[2]:.2f}%<br>"
+                "거래량 배율: %{customdata[3]:.2f}배<br>"
+                "뉴스 언급: %{customdata[4]}건"
+                "<extra></extra>"
+            ),
+            xgap=4,
+            ygap=4,
+        )
     )
     fig.update_layout(
         paper_bgcolor="#08111d",
         plot_bgcolor="#08111d",
         font_color="#e6edf3",
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False, autorange="reversed"),
         margin=dict(l=0, r=0, t=8, b=0),
         height=420,
     )
@@ -178,15 +231,24 @@ def theme_heatmap(theme_scores: pd.DataFrame) -> go.Figure:
 def theme_bar(theme_scores: pd.DataFrame) -> go.Figure:
     df = theme_scores.sort_values("score").tail(10)
     colors = [GREEN if x >= 65 else YELLOW if x >= 50 else RED for x in df["score"]]
-    fig = go.Figure(go.Bar(x=df["score"], y=df["theme"], orientation="h", marker_color=colors))
+    fig = go.Figure(
+        go.Bar(
+            x=df["score"],
+            y=df["theme"],
+            orientation="h",
+            marker_color=colors,
+            hovertemplate="<b>%{y}</b><br>테마 점수: %{x:.1f}점<extra></extra>",
+        )
+    )
     fig.update_layout(
         paper_bgcolor="#08111d",
         plot_bgcolor="#08111d",
         font_color="#e6edf3",
-        xaxis=dict(range=[0, 100], gridcolor="#263241"),
-        yaxis=dict(gridcolor="#263241"),
+        xaxis=dict(title="테마 점수", range=[0, 100], gridcolor="#263241"),
+        yaxis=dict(title="", gridcolor="#263241"),
         margin=dict(l=8, r=8, t=8, b=8),
         height=390,
+        showlegend=False,
     )
     return fig
 

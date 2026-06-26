@@ -18,8 +18,8 @@ from src.data_loader import (
     load_watchlist,
 )
 from src.market_score import calculate_risk_score, generate_investment_ideas
-from src.news_loader import load_market_news, negative_news_ratio
-from src.theme_engine import build_money_flow, calculate_theme_scores, strong_stock_table, watchlist_impact
+from src.news_loader import load_market_news, negative_news_ratio, summarize_news
+from src.theme_engine import calculate_theme_scores, strong_stock_table, watchlist_impact
 from src.ui_components import (
     apply_theme,
     dataframe_download,
@@ -29,7 +29,6 @@ from src.ui_components import (
     render_summary,
     render_theme_expanders,
     risk_gauge,
-    sankey_flow,
     theme_bar,
     theme_heatmap,
 )
@@ -68,6 +67,7 @@ def load_dashboard_data(force_refresh_key: int = 0) -> dict:
         "calendar": load_economic_calendar(),
         "risk": risk,
         "summary": summary,
+        "news_summary": summarize_news(news),
         "benefits": match_benefit_stocks(news),
         "strong_stocks": strong_stock_table(theme_scores, themes, news),
         "watch_impact": watchlist_impact(watchlist, theme_scores, themes, news),
@@ -136,8 +136,17 @@ def main() -> None:
         st.markdown('<div class="section-title">오늘 돈이 몰리는 업종 TOP10</div>', unsafe_allow_html=True)
         st.plotly_chart(theme_bar(data["theme_scores"]), use_container_width=True)
 
-    st.markdown('<div class="section-title">시장 자금 흐름</div>', unsafe_allow_html=True)
-    st.plotly_chart(sankey_flow(build_money_flow(data["theme_scores"])), use_container_width=True)
+    action_left, action_right = st.columns([1.2, 1])
+    with action_left:
+        st.markdown('<div class="section-title">오늘의 강한 종목 TOP20</div>', unsafe_allow_html=True)
+        st.dataframe(data["strong_stocks"], use_container_width=True, hide_index=True)
+    with action_right:
+        st.markdown('<div class="section-title">주요 뉴스 요약</div>', unsafe_allow_html=True)
+        st.dataframe(
+            data["news_summary"][["중요도", "테마", "뉴스", "요약"]],
+            use_container_width=True,
+            hide_index=True,
+        )
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["수급", "뉴스·수혜주", "테마·종목", "공시·일정", "관심종목·공유"])
 
@@ -155,7 +164,9 @@ def main() -> None:
     with tab2:
         col1, col2 = st.columns([1.1, 1])
         with col1:
-            st.subheader("주요 뉴스")
+            st.subheader("주요 뉴스 요약")
+            st.dataframe(data["news_summary"], use_container_width=True, hide_index=True)
+            st.subheader("뉴스 원문 링크")
             render_news_cards(data["news"], limit=10)
         with col2:
             st.subheader("예상 수혜주 엔진")
