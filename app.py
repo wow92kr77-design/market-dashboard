@@ -43,7 +43,7 @@ def load_dashboard_data(force_refresh_key: int = 0) -> dict:
     indices = load_market_indices(settings["use_live_data"])
     news = load_market_news(themes)
     theme_scores = calculate_theme_scores(themes, news)
-    foreign_flow, institution_flow = load_investor_flows()
+    foreign_flow, institution_flow, foreign_sell_flow, institution_sell_flow = load_investor_flows()
     risk = calculate_risk_score(indices, foreign_flow, negative_news_ratio(news))
     summary = generate_ai_summary(
         settings["openai_api_key"],
@@ -62,6 +62,8 @@ def load_dashboard_data(force_refresh_key: int = 0) -> dict:
         "theme_scores": theme_scores,
         "foreign_flow": foreign_flow,
         "institution_flow": institution_flow,
+        "foreign_sell_flow": foreign_sell_flow,
+        "institution_sell_flow": institution_sell_flow,
         "program": load_program_trading(),
         "disclosures": load_disclosures(settings["dart_api_key"]),
         "calendar": load_economic_calendar(),
@@ -137,7 +139,10 @@ def main() -> None:
         st.plotly_chart(theme_bar(data["theme_scores"]), use_container_width=True)
 
     st.markdown('<div class="section-title">오늘의 강한 종목 TOP20</div>', unsafe_allow_html=True)
-    st.dataframe(data["strong_stocks"], use_container_width=True, hide_index=True)
+    if data["strong_stocks"].empty:
+        st.info("실시간으로 조회된 강한 종목이 없습니다. USE_LIVE_DATA=true 설정과 Yahoo Finance 연결 상태를 확인하세요.")
+    else:
+        st.dataframe(data["strong_stocks"], use_container_width=True, hide_index=True)
 
     st.markdown('<div class="section-title">주요 뉴스 요약</div>', unsafe_allow_html=True)
     st.dataframe(
@@ -152,10 +157,26 @@ def main() -> None:
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("외국인 순매수 TOP20")
-            st.dataframe(data["foreign_flow"], use_container_width=True, hide_index=True)
+            if data["foreign_flow"].empty:
+                st.info("실시간 외국인 수급을 조회하지 못했습니다. USE_LIVE_DATA=true와 pykrx/KRX 연결 상태를 확인하세요.")
+            else:
+                st.dataframe(data["foreign_flow"], use_container_width=True, hide_index=True)
+            st.subheader("외국인 순매도 TOP20")
+            if data["foreign_sell_flow"].empty:
+                st.info("실시간 외국인 순매도 데이터를 조회하지 못했습니다.")
+            else:
+                st.dataframe(data["foreign_sell_flow"], use_container_width=True, hide_index=True)
         with col2:
             st.subheader("기관 순매수 TOP20")
-            st.dataframe(data["institution_flow"], use_container_width=True, hide_index=True)
+            if data["institution_flow"].empty:
+                st.info("실시간 기관 수급을 조회하지 못했습니다. 장 종료 후 또는 KRX 연결 가능 시간에 다시 시도하세요.")
+            else:
+                st.dataframe(data["institution_flow"], use_container_width=True, hide_index=True)
+            st.subheader("기관 순매도 TOP20")
+            if data["institution_sell_flow"].empty:
+                st.info("실시간 기관 순매도 데이터를 조회하지 못했습니다.")
+            else:
+                st.dataframe(data["institution_sell_flow"], use_container_width=True, hide_index=True)
         st.subheader("프로그램 매매/시장 수급")
         st.info(f"{data['program']['status']}: {data['program']['message']}")
 

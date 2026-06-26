@@ -7,6 +7,7 @@ from urllib.parse import quote_plus
 from bs4 import BeautifulSoup
 import feedparser
 import pandas as pd
+import requests
 
 
 NEWS_KEYWORDS = [
@@ -26,6 +27,11 @@ NEWS_KEYWORDS = [
 
 NEGATIVE_WORDS = ["급락", "침체", "우려", "하락", "매도", "리스크", "부진", "적자", "전쟁"]
 POSITIVE_WORDS = ["상승", "강세", "수주", "호조", "확대", "투자", "신고가", "순매수"]
+
+ARTICLE_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+}
 
 
 def _fallback_news() -> pd.DataFrame:
@@ -115,6 +121,7 @@ def load_market_news(themes: pd.DataFrame, limit: int = 30) -> pd.DataFrame:
                         "importance": score_news_importance(title),
                         "tags": tag_news(title, themes),
                         "summary": entry.get("summary", ""),
+                        "article_text": fetch_article_text(entry.get("link", "")) if len(rows) < 12 else "",
                         "source": "live",
                     }
                 )
@@ -135,14 +142,19 @@ def negative_news_ratio(news: pd.DataFrame) -> float:
 
 
 def summarize_news(news: pd.DataFrame, limit: int = 8) -> pd.DataFrame:
-    """Make a compact Korean summary table from RSS news without paid APIs."""
+    """Make a compact Korean summary table from fetched article bodies."""
     rows = []
     for _, item in news.head(limit).iterrows():
         title = str(item.get("title", "")).strip()
+        article_text = str(item.get("article_text", "")).strip()
         raw_summary = str(item.get("summary", "")).strip()
         plain_summary = BeautifulSoup(raw_summary, "html.parser").get_text(" ", strip=True)
-        if not plain_summary or plain_summary == title:
-            plain_summary = _rule_news_summary(title, str(item.get("tags", "시장")))
+        if article_text:
+            plain_summary = _summarize_article_text(article_text)
+        elif plain_summary and plain_summary != title:
+            plain_summary = _summarize_article_text(plain_summary)
+        else:
+            plain_summary = "본문 접근 실패: 언론사 차단 또는 RSS 제한으로 제목 기반 판단만 가능합니다."
         rows.append(
             {
                 "중요도": "★" * int(item.get("importance", 1)),
@@ -156,13 +168,52 @@ def summarize_news(news: pd.DataFrame, limit: int = 8) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _rule_news_summary(title: str, tags: str) -> str:
-    if any(word in title for word in ["수주", "공급계약", "수출"]):
-        return f"{tags} 관련 수주/수출 모멘텀이 부각되는 뉴스입니다."
-    if any(word in title for word in ["강세", "상승", "신고가"]):
-        return f"{tags} 투자심리가 개선되며 관련 종목 흐름이 강한 뉴스입니다."
-    if any(word in title for word in ["하락", "급락", "부진", "우려"]):
-        return f"{tags} 쪽 단기 부담 또는 리스크를 점검해야 하는 뉴스입니다."
-    if any(word in title for word in ["환율", "금리", "FOMC", "CPI"]):
-        return "거시 변수 변화가 국내 증시 수급과 성장주 변동성에 영향을 줄 수 있습니다."
-    return f"{tags} 관련 시장 관심이 확인되는 뉴스입니다."
+def fetch_article_text(url: str) -> str:
+    """Open a news link and extract readable paragraph text when the publisher allows it."""
+    if not url:
+        return ""
+    try:
+        response = requests.get(url, headers=ARTICLE_HEADERS, timeout=5, allow_redirects=True)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        for tag in soup(["script", "style", "noscript", "header", "footer", "nav", "aside"]):
+            tag.decompose()
+
+        candidates = []
+        selectors = [
+            "article",
+            "[itemprop='articleBody']",
+            ".article-body",
+            ".article_view",
+            ".newsct_article",
+            "#articleBody",
+            "#articeBody",
+            "#newsEndContents",
+        ]
+        for selector in selectors:
+            for block in soup.select(selector):
+                text = block.get_text(" ", strip=True)
+                if len(text) > 200:
+                    candidates.append(text)
+        if not candidates:
+            paragraphs = [p.get_text(" ", strip=True) for p in soup.find_all("p")]
+            candidates = [text for text in paragraphs if len(text) > 50]
+        text = " ".join(candidates)
+        return _clean_article_text(text)[:2500]
+    except Exception:
+        return ""
+
+
+def _clean_article_text(text: str) -> str:
+    blocked = ["무단 전재", "재배포 금지", "구독", "로그인", "기자", "Copyright"]
+    parts = [part.strip() for part in text.replace("\n", " ").split(".") if part.strip()]
+    filtered = [part for part in parts if not any(word in part for word in blocked)]
+    return ". ".join(filtered)
+
+
+def _summarize_article_text(text: str) -> str:
+    cleaned = " ".join(str(text).split())
+    sentences = [s.strip() for s in cleaned.replace("다.", "다.|").replace("요.", "요.|").split("|") if s.strip()]
+    if not sentences:
+        return cleaned[:150]
+    return " ".join(sentences[:2])[:180]

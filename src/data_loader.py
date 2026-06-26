@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Dict, List, Tuple
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
@@ -189,6 +190,7 @@ def _snapshot_from_yfinance(name: str, ticker: str) -> Dict[str, object]:
         "change_pct": change_pct,
         "volume_ratio": volume_ratio,
         "trading_value": trading_value,
+        "date": str(close.index[-1].date()) if hasattr(close.index[-1], "date") else "",
         "source": "live",
     }
 
@@ -246,49 +248,68 @@ def get_stock_snapshot(name: str) -> Dict[str, object]:
         }
 
 
-def load_investor_flows() -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Fetch foreign/institution net buying. pykrx failures return sample frames."""
-    sample_foreign = pd.DataFrame(
-        [
-            ["SK하이닉스", "KOSPI", 1650, 3.2],
-            ["HD현대일렉트릭", "KOSPI", 980, 4.2],
-            ["한화에어로스페이스", "KOSPI", 760, 2.6],
-            ["삼성전자", "KOSPI", 710, 0.7],
-            ["두산에너빌리티", "KOSPI", 540, 2.8],
-            ["한미반도체", "KOSPI", 410, 2.4],
-        ],
-        columns=["종목명", "시장", "순매수금액(억원)", "등락률"],
-    )
-    sample_inst = pd.DataFrame(
-        [
-            ["LS ELECTRIC", "KOSPI", 620, 3.7],
-            ["삼성중공업", "KOSPI", 510, 2.1],
-            ["한화오션", "KOSPI", 455, 3.1],
-            ["한전기술", "KOSPI", 330, 1.9],
-            ["리노공업", "KOSDAQ", 280, 1.3],
-        ],
-        columns=["종목명", "시장", "순매수금액(억원)", "등락률"],
-    )
+def load_investor_flows() -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Fetch latest available foreign/institution net buying and selling."""
+    empty_buy = _empty_investor_frame("순매수금액(억원)")
+    empty_sell = _empty_investor_frame("순매도금액(억원)")
     if not get_settings()["use_live_data"]:
-        return sample_foreign, sample_inst
+        return empty_buy, empty_buy, empty_sell, empty_sell
     try:
         from pykrx import stock
 
-        day = datetime.now().strftime("%Y%m%d")
-        # TODO: Expand this to market별 KOSPI/KOSDAQ aggregation once pykrx schema is stable.
-        df = stock.get_market_net_purchases_of_equities(day, day, "KOSPI", "외국인")
-        df = df.sort_values("순매수거래대금", ascending=False).head(20)
-        foreign = pd.DataFrame(
-            {
-                "종목명": [stock.get_market_ticker_name(t) for t in df.index],
-                "시장": "KOSPI",
-                "순매수금액(억원)": (df["순매수거래대금"] / 100_000_000).round(0),
-                "등락률": 0.0,
-            }
-        )
-        return foreign, sample_inst
+        foreign_buy = _fetch_investor_top(stock, "외국인", "buy")
+        institution_buy = _fetch_investor_top(stock, "기관합계", "buy")
+        foreign_sell = _fetch_investor_top(stock, "외국인", "sell")
+        institution_sell = _fetch_investor_top(stock, "기관합계", "sell")
+        return foreign_buy, institution_buy, foreign_sell, institution_sell
     except Exception:
-        return sample_foreign, sample_inst
+        return empty_buy, empty_buy, empty_sell, empty_sell
+
+
+def _empty_investor_frame(amount_column: str) -> pd.DataFrame:
+    return pd.DataFrame(columns=["종목명", "시장", amount_column, "등락률(%)", "데이터기준일"])
+
+
+def _fetch_investor_top(stock_api, investor: str, direction: str) -> pd.DataFrame:
+    markets = ["KOSPI", "KOSDAQ"]
+    amount_column = "순매수금액(억원)" if direction == "buy" else "순매도금액(억원)"
+    for offset in range(0, 14):
+        day = (datetime.now(ZoneInfo("Asia/Seoul")) - timedelta(days=offset)).strftime("%Y%m%d")
+        rows = []
+        for market in markets:
+            try:
+                flow = stock_api.get_market_net_purchases_of_equities(day, day, market, investor)
+                if flow is None or flow.empty or "순매수거래대금" not in flow:
+                    continue
+                ohlcv = stock_api.get_market_ohlcv_by_ticker(day, market)
+                flow = flow.copy()
+                flow["시장"] = market
+                flow["등락률(%)"] = 0.0
+                if ohlcv is not None and not ohlcv.empty and "등락률" in ohlcv:
+                    flow["등락률(%)"] = ohlcv["등락률"].reindex(flow.index).fillna(0.0)
+                rows.append(flow)
+            except Exception:
+                continue
+        if rows:
+            data = pd.concat(rows)
+            if direction == "buy":
+                data = data[data["순매수거래대금"] > 0].sort_values("순매수거래대금", ascending=False).head(20)
+                amount = data["순매수거래대금"]
+            else:
+                data = data[data["순매수거래대금"] < 0].sort_values("순매수거래대금", ascending=True).head(20)
+                amount = data["순매수거래대금"].abs()
+            if data.empty:
+                continue
+            return pd.DataFrame(
+                {
+                    "종목명": [stock_api.get_market_ticker_name(ticker) for ticker in data.index],
+                    "시장": data["시장"].values,
+                    amount_column: (amount / 100_000_000).round(1).values,
+                    "등락률(%)": data["등락률(%)"].round(2).values,
+                    "데이터기준일": day,
+                }
+            )
+    return _empty_investor_frame(amount_column)
 
 
 def load_program_trading() -> Dict[str, object]:

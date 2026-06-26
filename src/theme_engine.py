@@ -45,6 +45,8 @@ def strong_stock_table(theme_scores: pd.DataFrame, themes: pd.DataFrame, news: p
     for _, theme in theme_scores.head(8).iterrows():
         for stock_name in theme_map.get(theme["theme"], [])[:4]:
             snap = get_stock_snapshot(stock_name)
+            if snap.get("source") != "live":
+                continue
             news_bonus = int(news["title"].fillna("").str.contains(stock_name, regex=False).sum()) if not news.empty else 0
             ai_score = max(0, min(100, theme["score"] * 0.55 + float(snap["change_pct"]) * 8 + news_bonus * 5))
             rows.append(
@@ -55,11 +57,20 @@ def strong_stock_table(theme_scores: pd.DataFrame, themes: pd.DataFrame, news: p
                     "등락률(%)": round(float(snap["change_pct"]), 2),
                     "거래대금(억원)": round(float(snap["trading_value"]) / 100_000_000, 1),
                     "AI 점수": round(ai_score, 1),
-                    "데이터": "실시간" if snap.get("source") == "live" else "샘플",
+                    "데이터기준일": snap.get("date", ""),
                     "근거": f"{theme['theme']} 테마 점수 {theme['score']}점, 등락률 {snap['change_pct']:.1f}%",
                 }
             )
-    return pd.DataFrame(rows).sort_values("AI 점수", ascending=False).head(20)
+    columns = ["종목명", "테마", "현재가", "등락률(%)", "거래대금(억원)", "AI 점수", "데이터기준일", "근거"]
+    if not rows:
+        return pd.DataFrame(columns=columns)
+    return (
+        pd.DataFrame(rows)
+        .sort_values("AI 점수", ascending=False)
+        .drop_duplicates(subset=["종목명"], keep="first")
+        .head(20)
+        .loc[:, columns]
+    )
 
 
 def watchlist_impact(watchlist: pd.DataFrame, theme_scores: pd.DataFrame, themes: pd.DataFrame, news: pd.DataFrame) -> pd.DataFrame:
