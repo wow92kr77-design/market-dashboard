@@ -136,17 +136,15 @@ def main() -> None:
         st.markdown('<div class="section-title">오늘 돈이 몰리는 업종 TOP10</div>', unsafe_allow_html=True)
         st.plotly_chart(theme_bar(data["theme_scores"]), use_container_width=True)
 
-    action_left, action_right = st.columns([1.2, 1])
-    with action_left:
-        st.markdown('<div class="section-title">오늘의 강한 종목 TOP20</div>', unsafe_allow_html=True)
-        st.dataframe(data["strong_stocks"], use_container_width=True, hide_index=True)
-    with action_right:
-        st.markdown('<div class="section-title">주요 뉴스 요약</div>', unsafe_allow_html=True)
-        st.dataframe(
-            data["news_summary"][["중요도", "테마", "뉴스", "요약"]],
-            use_container_width=True,
-            hide_index=True,
-        )
+    st.markdown('<div class="section-title">오늘의 강한 종목 TOP20</div>', unsafe_allow_html=True)
+    st.dataframe(data["strong_stocks"], use_container_width=True, hide_index=True)
+
+    st.markdown('<div class="section-title">주요 뉴스 요약</div>', unsafe_allow_html=True)
+    st.dataframe(
+        data["news_summary"][["중요도", "테마", "뉴스", "요약"]],
+        use_container_width=True,
+        hide_index=True,
+    )
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["수급", "뉴스·수혜주", "테마·종목", "공시·일정", "관심종목·공유"])
 

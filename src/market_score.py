@@ -40,6 +40,9 @@ def calculate_risk_score(indices: pd.DataFrame, foreign_flow: pd.DataFrame, nega
     if not foreign_flow.empty and flow_col in foreign_flow and foreign_flow[flow_col].sum() > 0:
         score += 8
     score -= max(0.0, min(1.0, _number(negative_news_ratio))) * 20
+    # If a data vendor returns broken values, avoid showing a misleading absolute zero.
+    if score < 10 and any(abs(pct(name)) <= 15 for name in ["KOSPI", "KOSDAQ", "Nasdaq", "S&P500"]):
+        score = 35.0
     score = round(max(0, min(100, score)), 1)
     label = "위험" if score <= 30 else "보통" if score <= 60 else "양호" if score <= 80 else "매우 좋음"
     return {"score": score, "label": label}

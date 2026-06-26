@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from functools import lru_cache
 from typing import Dict, List, Tuple
 
 import pandas as pd
@@ -112,9 +113,97 @@ SAMPLE_STOCK_RETURN = {
     "HLB": -0.7,
 }
 
+YAHOO_KR_TICKERS = {
+    "삼성전자": "005930.KS",
+    "SK하이닉스": "000660.KS",
+    "한미반도체": "042700.KS",
+    "이수페타시스": "007660.KS",
+    "리노공업": "058470.KQ",
+    "ISC": "095340.KQ",
+    "HD현대일렉트릭": "267260.KS",
+    "LS ELECTRIC": "010120.KS",
+    "효성중공업": "298040.KS",
+    "일진전기": "103590.KS",
+    "LS": "006260.KS",
+    "대한전선": "001440.KS",
+    "두산에너빌리티": "034020.KS",
+    "한전기술": "052690.KS",
+    "한전KPS": "051600.KS",
+    "비에이치아이": "083650.KQ",
+    "우리기술": "032820.KQ",
+    "HD한국조선해양": "009540.KS",
+    "HD현대중공업": "329180.KS",
+    "삼성중공업": "010140.KS",
+    "한화오션": "042660.KS",
+    "한화에어로스페이스": "012450.KS",
+    "현대로템": "064350.KS",
+    "LIG넥스원": "079550.KS",
+    "한국항공우주": "047810.KS",
+    "현대차": "005380.KS",
+    "기아": "000270.KS",
+    "현대모비스": "012330.KS",
+    "HL만도": "204320.KS",
+    "LG에너지솔루션": "373220.KS",
+    "삼성SDI": "006400.KS",
+    "에코프로비엠": "247540.KQ",
+    "포스코퓨처엠": "003670.KS",
+    "삼성바이오로직스": "207940.KS",
+    "셀트리온": "068270.KS",
+    "유한양행": "000100.KS",
+    "HLB": "028300.KQ",
+    "KB금융": "105560.KS",
+    "신한지주": "055550.KS",
+    "하나금융지주": "086790.KS",
+    "우리금융지주": "316140.KS",
+    "레인보우로보틱스": "277810.KQ",
+    "두산로보틱스": "454910.KS",
+    "로보티즈": "108490.KQ",
+    "아모레퍼시픽": "090430.KS",
+    "LG생활건강": "051900.KS",
+    "한국콜마": "161890.KS",
+    "코스맥스": "192820.KS",
+    "CJ제일제당": "097950.KS",
+    "오리온": "271560.KS",
+    "삼양식품": "003230.KS",
+    "농심": "004370.KS",
+}
 
+
+def _snapshot_from_yfinance(name: str, ticker: str) -> Dict[str, object]:
+    hist = yf.Ticker(ticker).history(period="30d", interval="1d", auto_adjust=False)
+    if hist is None or hist.empty or "Close" not in hist:
+        raise ValueError("No close prices")
+    close = hist["Close"].dropna()
+    if len(close) < 2:
+        raise ValueError("Not enough close prices")
+    latest = float(close.iloc[-1])
+    prev = float(close.iloc[-2])
+    change_pct = ((latest / prev) - 1) * 100 if prev else 0.0
+    latest_volume = float(hist["Volume"].dropna().iloc[-1]) if "Volume" in hist and not hist["Volume"].dropna().empty else 0.0
+    avg_volume = float(hist["Volume"].dropna().tail(20).mean()) if "Volume" in hist and not hist["Volume"].dropna().empty else 0.0
+    trading_value = latest * latest_volume
+    volume_ratio = latest_volume / avg_volume if avg_volume else 1.0
+    return {
+        "name": name,
+        "price": latest,
+        "change_pct": change_pct,
+        "volume_ratio": volume_ratio,
+        "trading_value": trading_value,
+        "source": "live",
+    }
+
+
+@lru_cache(maxsize=256)
 def get_stock_snapshot(name: str) -> Dict[str, object]:
-    """Small stock snapshot. Korean names use sample mapping until ticker mapping is expanded."""
+    """Small stock snapshot. Live mode tries Yahoo tickers, then falls back safely."""
+    settings = get_settings()
+    if settings["use_live_data"]:
+        ticker = YAHOO_KR_TICKERS.get(name, name if name.isascii() else "")
+        if ticker:
+            try:
+                return _snapshot_from_yfinance(name, ticker)
+            except Exception:
+                pass
     if name in SAMPLE_STOCK_RETURN:
         pct = SAMPLE_STOCK_RETURN[name]
         return {

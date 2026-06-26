@@ -51,10 +51,11 @@ def strong_stock_table(theme_scores: pd.DataFrame, themes: pd.DataFrame, news: p
                 {
                     "종목명": stock_name,
                     "테마": theme["theme"],
-                    "현재가": snap["price"],
-                    "등락률": round(float(snap["change_pct"]), 2),
-                    "거래대금": snap["trading_value"],
+                    "현재가": round(float(snap["price"]), 0),
+                    "등락률(%)": round(float(snap["change_pct"]), 2),
+                    "거래대금(억원)": round(float(snap["trading_value"]) / 100_000_000, 1),
                     "AI 점수": round(ai_score, 1),
+                    "데이터": "실시간" if snap.get("source") == "live" else "샘플",
                     "근거": f"{theme['theme']} 테마 점수 {theme['score']}점, 등락률 {snap['change_pct']:.1f}%",
                 }
             )
