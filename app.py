@@ -104,6 +104,24 @@ def build_html_report(data: dict) -> str:
     """ + "\n".join(sections) + "</body></html>"
 
 
+def display_table(df: pd.DataFrame) -> pd.DataFrame:
+    """Format large dashboard numbers for human scanning without changing calculations."""
+    out = df.copy()
+    one_decimal_cols = ["거래대금(억원)", "순매수금액(억원)", "순매도금액(억원)", "AI 점수"]
+    two_decimal_cols = ["등락률(%)"]
+    integer_cols = ["현재가"]
+    for col in one_decimal_cols:
+        if col in out:
+            out[col] = pd.to_numeric(out[col], errors="coerce").map(lambda x: "" if pd.isna(x) else f"{x:,.1f}")
+    for col in two_decimal_cols:
+        if col in out:
+            out[col] = pd.to_numeric(out[col], errors="coerce").map(lambda x: "" if pd.isna(x) else f"{x:,.2f}")
+    for col in integer_cols:
+        if col in out:
+            out[col] = pd.to_numeric(out[col], errors="coerce").map(lambda x: "" if pd.isna(x) else f"{x:,.0f}")
+    return out
+
+
 def main() -> None:
     apply_theme()
     if "refresh_key" not in st.session_state:
@@ -142,7 +160,7 @@ def main() -> None:
     if data["strong_stocks"].empty:
         st.info("실시간으로 조회된 강한 종목이 없습니다. USE_LIVE_DATA=true 설정과 Yahoo Finance 연결 상태를 확인하세요.")
     else:
-        st.dataframe(data["strong_stocks"], use_container_width=True, hide_index=True)
+        st.dataframe(display_table(data["strong_stocks"]), use_container_width=True, hide_index=True)
 
     st.markdown('<div class="section-title">주요 뉴스 요약</div>', unsafe_allow_html=True)
     st.dataframe(
@@ -158,25 +176,29 @@ def main() -> None:
         with col1:
             st.subheader("외국인 순매수 TOP20")
             if data["foreign_flow"].empty:
-                st.info("실시간 외국인 수급을 조회하지 못했습니다. USE_LIVE_DATA=true와 pykrx/KRX 연결 상태를 확인하세요.")
+                st.info("최근 30일 내 외국인 순매수 데이터를 조회하지 못했습니다. USE_LIVE_DATA=true와 pykrx/KRX 연결 상태를 확인하세요.")
             else:
-                st.dataframe(data["foreign_flow"], use_container_width=True, hide_index=True)
+                st.caption(f"기준일: {data['foreign_flow']['데이터기준일'].iloc[0]}")
+                st.dataframe(display_table(data["foreign_flow"]), use_container_width=True, hide_index=True)
             st.subheader("외국인 순매도 TOP20")
             if data["foreign_sell_flow"].empty:
-                st.info("실시간 외국인 순매도 데이터를 조회하지 못했습니다.")
+                st.info("최근 30일 내 외국인 순매도 데이터를 조회하지 못했습니다.")
             else:
-                st.dataframe(data["foreign_sell_flow"], use_container_width=True, hide_index=True)
+                st.caption(f"기준일: {data['foreign_sell_flow']['데이터기준일'].iloc[0]}")
+                st.dataframe(display_table(data["foreign_sell_flow"]), use_container_width=True, hide_index=True)
         with col2:
             st.subheader("기관 순매수 TOP20")
             if data["institution_flow"].empty:
-                st.info("실시간 기관 수급을 조회하지 못했습니다. 장 종료 후 또는 KRX 연결 가능 시간에 다시 시도하세요.")
+                st.info("최근 30일 내 기관 순매수 데이터를 조회하지 못했습니다. 장 종료 후 또는 KRX 연결 가능 시간에 다시 시도하세요.")
             else:
-                st.dataframe(data["institution_flow"], use_container_width=True, hide_index=True)
+                st.caption(f"기준일: {data['institution_flow']['데이터기준일'].iloc[0]}")
+                st.dataframe(display_table(data["institution_flow"]), use_container_width=True, hide_index=True)
             st.subheader("기관 순매도 TOP20")
             if data["institution_sell_flow"].empty:
-                st.info("실시간 기관 순매도 데이터를 조회하지 못했습니다.")
+                st.info("최근 30일 내 기관 순매도 데이터를 조회하지 못했습니다.")
             else:
-                st.dataframe(data["institution_sell_flow"], use_container_width=True, hide_index=True)
+                st.caption(f"기준일: {data['institution_sell_flow']['데이터기준일'].iloc[0]}")
+                st.dataframe(display_table(data["institution_sell_flow"]), use_container_width=True, hide_index=True)
         st.subheader("프로그램 매매/시장 수급")
         st.info(f"{data['program']['status']}: {data['program']['message']}")
 
@@ -205,7 +227,7 @@ def main() -> None:
         col1, col2 = st.columns([1.1, 1])
         with col1:
             st.subheader("오늘의 강한 종목 TOP20")
-            st.dataframe(data["strong_stocks"], use_container_width=True, hide_index=True)
+            st.dataframe(display_table(data["strong_stocks"]), use_container_width=True, hide_index=True)
         with col2:
             st.subheader("오늘의 테마")
             render_theme_expanders(data["themes"], data["theme_scores"])

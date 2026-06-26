@@ -273,7 +273,7 @@ def _empty_investor_frame(amount_column: str) -> pd.DataFrame:
 def _fetch_investor_top(stock_api, investor: str, direction: str) -> pd.DataFrame:
     markets = ["KOSPI", "KOSDAQ"]
     amount_column = "순매수금액(억원)" if direction == "buy" else "순매도금액(억원)"
-    for offset in range(0, 14):
+    for offset in range(0, 30):
         day = (datetime.now(ZoneInfo("Asia/Seoul")) - timedelta(days=offset)).strftime("%Y%m%d")
         rows = []
         for market in markets:
